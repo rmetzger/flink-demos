@@ -40,18 +40,19 @@ object StreamingDemo {
     env.setParallelism(4)
     env.enableCheckpointing(1000)
     
-    val sampleStream = env.addSource(new EventsGeneratorSource())
+ //   val sampleStream = env.addSource(new EventsGeneratorSource())
     
-//    // Kafka
-//    val props = new Properties()
-//    props.put("zookeeper.connect", "localhost:2181")
-//    props.put("group.id", "flink-demo-group")
-//    props.put("auto.commit.enable", "false")
-//    
-//    val kafkaStream = env.addSource(new PersistentKafkaSource[Event]("flink-demo-topic", 
-//                                                                     new EventDeserializer(),
-//                                                                     new ConsumerConfig(props)))
-    sampleStream
+    // Kafka
+    val props = new Properties()
+    props.put("zookeeper.connect", "localhost:2181")
+    props.put("group.id", "flink-demo-group1")
+    props.put("auto.commit.enable", "false")
+    props.put("auto.offset.reset", "smallest")
+
+    val kafkaStream = env.addSource(new PersistentKafkaSource[Event]("flink-demo2",
+                                                                     new EventDeserializer(),
+                                                                     new ConsumerConfig(props)))
+    kafkaStream
         .partitionByHash("sourceAddress")
         .flatMap(new StateMachineMapper())
         .print()
@@ -69,6 +70,7 @@ class StateMachineMapper extends FlatMapFunction[Event, Alert] with Checkpointed
   private[this] val states = new mutable.HashMap[Int, State]()
   
   override def flatMap(t: Event, out: Collector[Alert]): Unit = {
+    println("Incoming", t)
     
     // get and remove the current state
     val state = states.remove(t.sourceAddress).getOrElse(InitialState)
@@ -98,15 +100,10 @@ class StateMachineMapper extends FlatMapFunction[Event, Alert] with Checkpointed
 class EventDeserializer extends DeserializationSchema[Event] {
   
   override def deserialize(bytes: Array[Byte]): Event = {
-    if (bytes.length == 8) {
-      val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-      val address: Int = buffer.getInt(0)
-      val eventType: Int = buffer.getInt(4)
-      Event(address, eventType)
-    }
-    else {
-      throw new IllegalArgumentException()
-    }
+    val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+    val address: Int = buffer.getInt(0)
+    val eventType: Int = buffer.getInt(4)
+    Event(address, eventType)
   }
 
   override def isEndOfStream(t: Event): Boolean = false
